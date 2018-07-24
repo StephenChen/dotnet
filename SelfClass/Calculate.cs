@@ -4,17 +4,21 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace TestCode
+namespace SelfClass
 {
     /// <summary>
-    /// 计算类
-    /// </summary>
+ /// 计算类
+ /// </summary>
     class Calculate
     {
         // 几个辅助的位操作:
         // 1. -n = ~(n-1) = ~n+1
         // 2. n&~(n-1), 获取n中二进制中的最后一个1
         // 3. n&(n-1), 去掉n中二进制中的最后一个1
+
+        // 原码 ：二进制定点表示法，即最高位为符号位，“0”表示正，“1”表示负，其余位表示数值的大小。
+        // 反码 ：正数的反码与其原码相同；负数的反码是对其原码逐位取反，但符号位除外。
+        // 补码 ：正数的补码与其原码相同；负数的补码是在其反码的末位加1。
 
         /// <summary>
         /// 加(网上迭代)
@@ -29,7 +33,7 @@ namespace TestCode
             // sum 代表结果集, carry 代表的是进位
             int sum = 0, carry = 0;
             while (num2 != 0)
-            {                
+            {
                 //这里的num1^num2得到的正是两者相加，不带进位的结果
                 //首轮结果 010010^100111 = 110101
                 sum = num1 ^ num2;
@@ -41,9 +45,6 @@ namespace TestCode
             }
             return sum;
         }
-        // 原码 ：二进制定点表示法，即最高位为符号位，“0”表示正，“1”表示负，其余位表示数值的大小。
-        // 反码 ：正数的反码与其原码相同；负数的反码是对其原码逐位取反，但符号位除外。
-        // 补码 ：正数的补码与其原码相同；负数的补码是在其反码的末位加1。
 
         /// <summary>
         /// 加(自写迭代)
@@ -191,7 +192,7 @@ namespace TestCode
             int temp = pow(x, y / 2);
             // y&1 可以验证奇偶  当y的二进制末尾不存在1即为偶数
             if ((y & 1) != 0)
-            {   
+            {
                 result = x * temp * temp;// 奇数
             }
             else
