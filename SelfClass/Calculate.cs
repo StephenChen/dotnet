@@ -7,8 +7,8 @@ using System.Threading.Tasks;
 namespace SelfClass
 {
     /// <summary>
- /// 计算类
- /// </summary>
+    /// 计算类
+    /// </summary>
     class Calculate
     {
         // 几个辅助的位操作:
