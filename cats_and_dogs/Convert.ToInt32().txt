@@ -1,0 +1,9 @@
+Convert.ToInt32(a),如果a的小数为.5,
+则整数部分为偶数(包含0),结果为本身;整数部分为奇数,结果为本身+1;
+
+eg:Convert.ToInt32(1.5) -> 2;
+   Convert.ToInt32(7.5) -> 8;
+   Convert.ToInt32(2.5) -> 2;
+   Convert.ToInt32(4.5) -> 4;
+   
+   

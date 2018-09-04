@@ -1,0 +1,8 @@
+在OnMouseMove实现中添加
+	TRACKMOUSEEVENT tme;
+	tme.cbSize = sizeof(tme); //结构体缓冲区大小
+	tme.dwFlags = TME_HOVER;  //注册WM_MOUSEHOVER消息
+	tme.dwHoverTime = 1000;   //WM_MOUSEHOVER消息触发间隔时间
+	tme.hwndTrack = m_hWnd;   //当前窗口句柄
+
+	::TrackMouseEvent(&tme); //注册发送消息
