@@ -95,6 +95,82 @@
 - Microsoft 提供了 PEVerify.exe，他检查一个程序集的所有方法，并报告其中含有不安全代码的方法。(测试:通过内网或Internet)。
 - 验证要访问所有以来的程序集中包含的元数据。当使用 PEVerity 检查程序集时，它必须能够定位并加载引用的所有程序集。PEVerity 使用 CLR 定位依赖程序集，采用平时执行程序集时一样的 绑定(binding) 和 探测(probing) 来定位程序集。
 
+## 1.5 本机代码生成器 NGen.exe
+- 在应用程序安装到用户的计算机上时，将 IL 代码编译成本机代码。因此，CLR 的 JIT 编译器不需要再运行时编译 IL 代码，有助于提升应用程序的性能。
+- 1.提高应用程序的启动速度
+- 2.减小应用程序的工作集(working set)(指在进程的所有内存中，已映射的物理内存)。如果一个程序集同时加载到多个进程中，对该程序集运行 NGen.exe 可减小应用程序的工作集。NGen.exe 将 IL 编译成本机代码，并将这些代码保存到单独的文件中。文件通过“内存映射”同时映射到多个进程地址空间中，使代码得到共享，避免每个进程都需要一份单独的代码拷贝。
+- 进程：物理内存(CPU可直接访问)，虚拟内存(可能在转换列表中，CPU不能通过虚地址访问，需要Windows映射之后才能访问)，磁盘上的分页文件。
+- 安装程序调用 NGen.exe 是，应用程序的所有或指定程序集的 IL 代码会编译成本机代码。NGen.exe 新建一个程序集文件，只包含这种本机代码，不含任何 IL。放在 `%SystemRoot%\Assembly\NativeImages_v4.0.#####_64` 这样的一个目录下的一个文件夹中。目录名包含 CLR版本号，本机代码是由 32\64 Windows编译。
+- 当 CLR 加载程序集文件，都会检查是否有 NGen 生成的本机文件，如果找不到就对 IL 进行 JIT 编译。
+- NGen好处：
+	- 托管代码的好处(垃圾回收、验证、类型安全等)。
+	- 没有托管代码(JIT编译)的所有性能问题等。
+- NGen生成的文件的问题：
+	- 没有知识产权保护。只发布 NGen.exe 来达到保护是不行的。在运行时，CLR 要求访问程序集的元数据(用于反射和序列化等)，所以必须要发布包含 IL 和元数据的程序集。CLR 也可能因为某些原因不能使用 NGen 生成的文件。
+	- NGen 生成的文件可能失去同步。CLR 加载 NGen 生成的文件时，会将预编译代码和许多特征与当前执行环境进行比较。例句部分特征：
+		- CLR 版本：随补丁或 Service Pack 改变。
+		- CPU 类型：升级处理器发生改变、
+		- Windows 操作系统版本：安装新 Service Pack 后改变。
+		- 程序集的标识模块版本ID(Modele Version ID, MVID)：重新编译后改变。
+		- 引用的程序集的版本ID：重新编译引用的程序集后改变。
+		- 安全性：吊销了之前的授权后，安全性就会发生改变。权限包括声明性继承(declarative inheritance)、声明性连接时(declarative link-time)、SkipVerification 或者 UnmanagedCode 权限。
+		- `注意 可使用更新(update)模式运行 NGen.exe，使 NGen 生成的文件与新安装的 CLR 版本同步，在安装.NET Framework 的新 Service Pack 时，安装程序会自动用更新模式运行 NGen.exe`
+	- 较差的执行时性能。编译时，NGen 不能像 JIT 编译器那样对执行环境进行许多假定。例如，NGen 不能优化地使用特定 CPU 指令；静态字段只能间接访问(实际地址只能在运行时确定)。假如考虑使用 NGen.exe 来提升应用程序的性能，需进行比较。
+	
+- 对于服务器端应用程序，NGen.exe 的作用不明显甚至无作用，因为只有第一个客户端请求才能感受到性能的下降，后续的客户端请求都能以全速运行。
+- 对于客户端应用程序，使用 NGen.exe 也许能提高启动速度，或者缩小工作集。
+- 对于启动很慢的大型客户端应用程序，Microsoft 提供了 Managed Profile Guided Optimization 工具(MPGO.exe)。该工具分析程序执行，检查它在启动时需要那些东西。这些东西反馈给 NGen.exe 来更好的优化本机映像，使应用程序启动更快工作集缩小。准备发布应用程序时，用 MPGO 工具启动它，走一遍程序的常规任务。与所执行代码有关的信息会写入一个 profile 并嵌入程序集文件中。NGen.exe 工具利用 profile 数据来更好地优化它生成的本机映像。
+
+## 1.6 Framework 类库
+- .NET Framework 包含 Framework 类库(Framework Class Library, FCL)。FCL 是一组 DLL 程序集的统称，其中含有数千个类型定义，每个类型都公开了一些功能。Microsoft 还发布了其他库，比如 Windows Azure SDK 和 DirectX SDK。
+- 利用这些程序集创建的部分应用：
+	- Web 服务(Web service)
+	利用 Microsoft 的 ASP.NET XML Web Service 技术或者 Microsoft 的 Windows Communication Foundation(WCF)技术，可以简单地处理通过 Internet 发送的消息。
+	- 基于 HTML 的 Web 窗体/MVC 应用程序(网站)
+	ASP.NET 应用程序查询数据库并调用 Web 服务，合并和筛选返回的信息，使用基于 HTML 的“富”用户界面，在浏览器中显示。
+	- “富” Windows GUI 应用程序
+	用 Windows Store、Windows Presentation Foundation(WPF) 或者 Windows Forms 技术提供更强大性能更好的功能。可以直接与底层操作系统交换信息。
+	- Windows 控制台应用程序
+	对UI要求很简单。编译器、实用程序和工具。
+	- Windows 服务
+	用 .NET Framework 生成“服务”应用程序，通过“Windows 服务控制管理器”(Service Control Manager, SCM)控制。
+	- 数据库存储过程
+	Microsoft 的 SQL Server、IBM 的 DB2 以及 Oracle 的数据库服务器允许用 .NET Framework 写存储过程。
+	- 组件库
+	.NET Framework 允许生成独立程序集(组件)。
+
+## 1.7 通用类型系统
+- Microsoft 指定了一个正式的规范类描述类型的定义和行为，“通用类型系统”(Common Type System, CTS)。
+- Microsoft 将 CTS 和 .NET Framework 的其他组件(包括文件格式、元数据、中间语言以及对底层平台的访问(P/Invoke))提交给 ECMA 标准化，形成的标准为“公共语言基础结构”(Common Language Infrastructure, CLI)。Microsoft 还提交了 Framework 类库的一部分，C#编程语言(ECMA-334)以及 C++/CLI 编程语言。
+- CTS 规范规定，一个类型可以包含零个或者多个成员。
+	- 字段(Field)
+	- 方法(Mehtod)
+	- 属性(Property)
+	- 事件(Event)
+- CTS 制定了类型可见性规则以及类型成员的访问规则。
+	- private
+	- family(protected in C#)：派生类
+	- family and assembly(C#中没有提供)
+	- assembly(internal in C#)：同一程序集
+	- family or assembly(protected internal in C#)：任何程序集中的派生类或同一程序集中的任意类。
+	- public
+- CTS 为类型继承、虚方法、对象生存期等定义了相应的规则。
+- CTS 规定单继承
+- CTS 规定所有类型最终必须从预定义的 `System.Object` 继承。`System.Object` 允许做：
+	- 比较两个实例的相等性。
+	- 获取实例的哈希码。
+	- 查询一个实例的真正类型。
+	- 执行实例的浅(按位)拷贝。
+	- 获取实例对象当前状态的字符串表示。
+
+## 1.8 公共语言规范
+
+
+
+
+
+
+
 
 
 
