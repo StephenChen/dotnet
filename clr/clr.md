@@ -164,13 +164,52 @@
 	- 获取实例对象当前状态的字符串表示。
 
 ## 1.8 公共语言规范
+- 创建从其他编程语言中访问的类型，Microsoft 定义了“公共语言规范”(Common Language Specification, CLS)，详细定义了一个最小功能集。
+![avatar](../cats_and_dogs/pho/clr/1.6 CLR与C#与CLS.JPG)
+- 每种语言都提供了 CLR/CTS 的一个子集以及 CLS 的一个超集(但不一定是同一超集)
+- 以下代码使用 C# 定义一个符合 CLS 的类型。类型中含有几个不符合 CLS 的构造，造成 C# 编译器报错：
+
+```
+using System;
+
+// 告诉编译器检查 CLS 相容性
+[assembly: CLSCompliant(true)]
+
+namespace SomeLibrary {
+	// 因为是 public 类，所以会显示警告
+	public sealed class SomeLibraryType {
+
+		// 警告：SomeLibrary.SomeLibraryType.Abc() 的返回类型不符合 CLS
+		public UInt32 Abc() { return 0; }
+
+		// 警告：仅大小写不同的标识符 SomeLibrary.SomeLibraryType.abc() 不符合CLS
+		public void abc() { }
+
+		// 不显示警告：该方法是私有的
+		private UInt32 ABC() { return 0; }
+```
+
+- 将 `[assembly:CLSCompliant(true)]` 特性应用于程序集。编译器检查其中的任何公开类型，判断是否存在任何不合适的构造阻止了从其他编程语言中访问该类型。
+
+## 1.9 与非托管代码的互操作性
+- CLR 允许在应用程序中同时包含托管和非托管代码。
+	- 托管代码能调用 DLL 中的非托管函数
+	托管代码通过 P/Invoke(Platform Invoke)机制调用 DLL 中的函数。
+	- 托管代码可以使用现有 COM 组件(服务器)
+	- 非托管代码可以使用托管类型(服务器)
+- Microsoft 公开了 Type Library Importer 工具和 P/Invoke Interop Assistant 工具的源码，Http://CLRInterop.CodePlex.com
 
 
-
-
-
-
-
+# 2 生成、打包、部署和管理应用程序及类型
+- .NET Framework 部署目标
+- 将类型生成到模块中
+- 元数据概述
+- 将模块合并成程序集
+- 程序及版本资源信息
+- 语言文化
+- 简单应用程序部署(私有部署的程序集)
+- 简单管理控制(配置)
+- 
 
 
 
