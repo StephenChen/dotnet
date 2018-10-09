@@ -248,7 +248,15 @@ public sealed class Program {
 - 指定 `/noconfig` 命令行开关，编译器会忽略本地和全局 CSC.rsp 文件。
 
 ## 2.3 元数据概述
+- Program.exe(托管 PE 文件)由四部分组成：
+	- PE32(+)头：Windows 要求的标准信息。
+	- CLR 头：是一个小的信息快，是托管模块特有的。模块生成时所面向的 CLR 的 major(主)和 minor(次)版本号；一些标志(flag)；一个 MethodDef token，该 token 指定了模块(CUI、GUI、WinStoreApp)的入口方法；一个可选的强名称数字签名。最后，CLR 头还包含模块内部的一些元数据表的大小和偏移量。查看 CorHdr.h 定义的 IMAGE_COR20_HEADER 了解 CLR 头的具体格式。
+	- 元数据：是由三个表构成的二进制数据块。
+		- 定义表(definition table)：ModuleDef(对模块进行标识)，TypeDef(类型)，MethodDef(方法)，FieldDef(字段)，ParamDef(参数)，PropertyDef(属性)，EventDef(事件)。
+		- 引用表(reference table)：AssemblyRef(引用的每个程序集)，ModuleRef(引用的类型的每个 PE 模块)，TypeRef(引用的每个类型)，MemberRef(引用的每个成员(字段和方法，属性方法和事件方法))。
+		- 清单表(manifest table)：??
 
+- 检查 PE 文件中的元数据：ILDasm.exe 即 IL Disassembler(IL 反汇编器)。`ILDasm Program.exe`
 
 
 
