@@ -165,7 +165,7 @@
 
 ## 1.8 公共语言规范
 - 创建从其他编程语言中访问的类型，Microsoft 定义了“公共语言规范”(Common Language Specification, CLS)，详细定义了一个最小功能集。
-![avatar](../cats_and_dogs/pho/clr/1.6 CLR与C#与CLS.JPG)
+![avatar](../cats_and_dogs/pho/clr/1.6 CLR与CSharp与CLS.JPG)
 - 每种语言都提供了 CLR/CTS 的一个子集以及 CLS 的一个超集(但不一定是同一超集)
 - 以下代码使用 C# 定义一个符合 CLS 的类型。类型中含有几个不符合 CLS 的构造，造成 C# 编译器报错：
 
@@ -209,10 +209,45 @@ namespace SomeLibrary {
 - 语言文化
 - 简单应用程序部署(私有部署的程序集)
 - 简单管理控制(配置)
-- 
 
+## 2.1 .NET Framework 部署目标
+- Windows 不稳定和过于复杂：
+	- 所有应用程序都使用来自 Microsoft 或其他厂商的动态链接库(Dynamic-Link Library, DLL)。(DLL hell)
+	- 安装的复杂性。(备份不易、移动不易、卸载不易)
+	- 安全性。
 
+## 2.2 将类型生成到模块中
+- 源代码文件 Program.cs (C:\Program Files (x86)\MSBuild\14.0\Bin)
 
+```
+public sealed class Program {
+	public static void Main() {
+		System.Console.WriteLine("Hi");
+	}
+}
+```
+
+- cmd 执行 csc.exe /out:Program.exe /t[arget]:exe /r[eference]:MSCorLib.dll program.cs
+- 可简化成 csc.exe Program.cs
+- csc.exe /out:Program.exe /t:exe /nostdlib Program.cs 报错，没有自动引用 MSCorLib.dll
+- C# 编译器生成的 Program.exe 文件是标准 PE(可移植执行体, Portable Executable)，意味着 Windows 32/64 能加载它。
+- Windows 支持三种应用程序：
+	- 生成 控制台用户界面(Console User Interface, CUI) 应用程序使用 `/t:exe` 开关。
+	- 生活 图形用户界面(Graphical User Interface, GUI) 应用程序使用 `/t:winexe` 开关。
+	- 生成 Windows Store 应用使用 `/t:appcontainerexe` 开关。
+- 响应文件：包含一组编译器命令行开关的文本文件。MyProject.rsp:
+	```
+	/out:MyProject.exe
+	/target:winexe
+	```
+- CSC.exe 使用响应文件：
+`csc.exe @MyProject.rsp CodeFile1.cs CodeFile2.cs`
+- C# 编译器支持多个响应文件。CSC.exe 运行时，会在其所在目录查找全局 CSC.rsp 文件。设置发生冲突：命令行显式指定 > 本地响应文件 > 全局响应文件。
+- .NET Framework 目录 %SystemRoot%\Microsoft.NET\Framework(64)\vX.X.X 中有全局 CSC.rsp 文件。
+- 引用所有这些程序集对编译器的速度有一点影像，但如果源代码中没有引用，就不会影像最终程序集。
+- 指定 `/noconfig` 命令行开关，编译器会忽略本地和全局 CSC.rsp 文件。
+
+## 2.3 元数据概述
 
 
 
