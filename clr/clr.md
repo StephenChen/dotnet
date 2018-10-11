@@ -258,6 +258,170 @@ public sealed class Program {
 
 - 检查 PE 文件中的元数据：ILDasm.exe 即 IL Disassembler(IL 反汇编器)。`ILDasm Program.exe`
 
+## 2.4 将模块合并成程序集
+- 程序集：
+	- 定义了可重用的类型。
+	- 用一个版本号标记。
+	- 可以关联安全信息。
+- 使用多文件程序集：
+	- 不同的类型用不同的文件
+	- 可在程序集中添加资源或数据文件。
+	- 程序及包含的各个类型可以用不同的编程语言来实现。
+- 程序集是重用、版本控制和应用安全型设置的基本单元。
+- CLR 加载含有清单的文件，就可确定程序集的其他文件中，具体是哪一些文件包含应用程序引用的类型和资源。程序集的用户只需要知道含有清单的文件名称，文件的具体划分方式就是完全透明的。
+- 如果多个类型能共享相同的版本号和安全性设置，建议将所有这些类型放到同一文件中，而不是分散到多个文件中，更不要分散到多个程序集中。处于对性能的考虑，每次加载文件或程序集。需要加载的文件/程序集数量越少，性能越好，加载较少的程序集有助于减小工作集(working set)，缓解进城地址控件的碎片化，nGen.exe 处理较大的文件时可以进行更好的优化。
+- 生成程序集要么选择现有的 PE 文件作为“清单”的宿主，要么创建单独的 PE 文件只在其中包含清单。
+- 托管模块转换成程序集的清单元数据表：AssemblyDef(引用程序集单一记录项)，FileDef(每个 PE 文件和资源文件)，ManifestResourcesDef(每个资源)，ExportedTypeDef(所有 PE 模块中导出的每个 public 类型)。
+- 有了清单，用户不用关心程序集的划分细节，也使程序集具有自描述性(self-describing)。
+- C# 编译器生成程序集开关：
+	- `/t[arget]:exe` GUI 执行体
+	- `/t[arget]:winexe` GUI 执行体
+	- `/t[arget]:appcontainerexe` Windows Store 执行体
+	- `/t[arget]:library` 类库
+	- `/t[arget]:winmdobj` WINMD 库，生成的.winmdobj 文件需传给 WinMDExp.exe 进行处理。
+	- `/t[arget]:modile` 不包含清单元数据表的 DLL PE 文件。默认扩展名.netmodule。使用 `/addmodule` 开关，`csc /out:MultiFileLibrary.dll /t:library /addmodule:RUT.netmodule FUT.cs`。`/addmodule` 开关告诉编译器将文件添加到 FileDef 清单元数据表，并将 RUT.netmodule 的公开导出类型添加到 ExportedTypesDef 清单元数据表。 
+![avatar](../cats_and_dogs/pho/clr/2.1 MultiFileLibrary.JPG)
+- 不能直接通过 VS IDE 中创建多文件程序集，只能用命令行工具创建多文件程序集。
+
+### 2.4.1 使用 Visual Studio IDE 引用程序集。
+### 2.4.2 使用程序集链接器
+```
+csc /t:module RUT.cs
+csc /t:module FUT.cs
+al /out:MultiFileLibrary.dll /t:library FUT.netmodule RUT.netmodule
+```
+![avatar](../cats_and_dogs/pho/clr/2.3 MultiFileLibraryWithAL.JPG)
+最终程序集由三个文件构成：MultiFileLibrary.dll, RUT.netmodule, FUT.netmodule。程序集链接器不能将多个文件合并成一个文件。
+- 调用 AL.exe 时添加 `/main` 命令行开关，可指定模块的哪个方法是入口。
+```
+csc /t:module /r:MultiFileLibrary.dll program.cs
+al /out:Program.exe /t:exe /main:Program.Main Program.netModule
+```
+
+### 2.4.3 为程序集添加资源文件
+- AL.exe 开关:
+	- `/embed[resource]` 将文件作为资源添加到程序集并嵌入最终的 PE 文件。清单的 ManifestResourceDef 表会更新。
+	- `/link[resource]` 指出资源包含在程序集的哪个文件中，不会嵌入程序集 PE 文件中，保持独立且必须跟其他程序集文件一起打包和部署。清单的 ManifestResourceDef 和 FileDef 表会更新。
+- CSC.exe 的 `/resource` 和 `/linkresource` 相似。
+- 为程序集嵌入标准的 Win32 资源：
+	- AL.exe 或 CSC.exe： `/win32res` 指定一个.res 文件的路径名。
+	- AL.exe 或 CSC.exe： `/win32icon` 指定一个.ico 文件的路径名。
+- C# 编译器默认生成包含 Win32 清单资源信息。可使用 `/nowin32manifest` 不生成。
+
+## 2.5 程序集版本资源信息
+- 获取 PE 文件中嵌入的标准 Win32 版本资源信息，在应用程序代码中调用 `System.Diagnostics.FileVersionInfo` 的静态方法 `GetVersionInfo`，并传递程序集的路径为参数。
+- 生成程序集时，使用定制特性设置各种版本资源字段，这些特性在源码中应用于 assembly 级别：
+```
+using System.Reflection;
+// FileDescription 版本信息
+[assembly: AssemblyTitle(MultiFileLibrary.dll)]
+// LegalCopyright 版本信息
+[assembly: AssemblyCopyright("Copyright (c) Chen 2018")]
+// AssemblyVersion 版本信息
+[assembly: AssemblyVersion("3.0.0.0")]
+```
+- IL.exe 有开关设置这些信息，不必使用定制特性。C#编译器没有提供命令行开关，必须使用定制特性。
+- Visual Studio 中直接在 项目-Properties-AssemblyInfo.cs。 
+- 版本号：major(主版本号).minor(次版本号).build(内部版本号).revision(修订号)。
+- 程序集由三个版本号：
+	- AssemblyFileVersion：存储在 Win32 版本资源中。仅供参考，CLR 不检查不关心。在 Windows 资源管理器中能看到。对客户系统进行故障诊断时，可根据它识别程序集的版本。
+	- AssemblyInformationVersion：存储在 Win32 版本资源中。仅供参考，CLR 不检查不关心。指出包含该程序集的产品的版本。比如产品版本2.0，包含一个新开发的程序集版本为1.0，新开发的程序可设置这个版本号来代表产品的版本号。
+	- AssemblyVersion：存储在 AssemblyDef 清单元数据表中。CLR 在绑定到强命名程序集时会用到。很重要，唯一地标识了程序集，开始开发程序集时，应该设置好 major/minor/build/revision 部分。除非要开发程序集的下一个可部署版本，否则不应变动。如果程序集 A 引用了强命名的程序集 B，B 的版本会嵌入 A 的 AssemblyRef 表。当 CLR 加载 B 时，就准确知道  B 的版本。利用绑定重定向(binding redirect)技术，可以让 CLR 加载一个不同的版本。
+
+## 2.6 语言文化
+- 程序集还将语言文化(culture)作为其身份标识的一部分。
+- 未指定具体语言文化的程序集称为语言文化中性(culture neutral)。
+- 使用 AL.exe 的 `/c[ulture]:en-US` 开关指定语言文化。部署附属程序集时，保存在专门的子目录中 C:\MyApp\en-US。在运行时，使用 `System.Resources.ResourceManager` 类访问附属程序集的资源。
+- 创建包含代码的附属程序集也可以，使用定制特性 `System.Reflection.AssemblyCultureAttribute` 代替 AL.exe 的 `/culture` 开关。
+```
+// 将程序集的语言文化设为瑞士德语
+[assembly:AssemblyCulture("de-CH")]
+```
+一般不要生成引用了附属程序集的程序集。程序集的 AssemblyRef 记录项只应引用语言文化中性的程序集。要访问附属程序集中的类型或成员，应使用反射技术。
+
+## 2.7 简单应用程序部署(私有部署的程序集)
+- Visual Studio 将 Windows Store 应用打包成一个.appx 文件。不同用户对应一个安装好的.appx。
+- 对于非 WinStore 应用，直接批处理复制。也可使用 .cab 或 MSI。
+- 也可使用 Visual Studio 内建机制发布。
+- 在应用程序基目录或者子目录部署的程序集称为私有部署的程序集(private deployed assembly)。
+- 能实现简单的安装/移动/卸载，因为每个程序集都用元数据注明了自己引用的程序集，不需要注册表设置。引用(别的程序集的)程序集限定了每个类型的作用域。一个应用程序总是和它生成和测试时的类型绑定。即使另一个程序集恰好提供了同名类型，CLR 也不可能加载那个程序集。这一点有别于 COM。在 COM 中，类型是在注册表中登记的，造成机器上运行的任何应用程序都能使用那些类型。
+
+## 2.8 简单管理控制(配置)
+GF2_PMS1_E111.4_N32.6_20171219_L1A0002861771-MSS1 丹江口
+GF2_PMS1_E111.5_N32.6_20170421_L1A0002319092-MSS1
+112-112.14
+31.54-32.10
+- 实现对应用程序的管理控制，在应用程序目录放入一个配置文件。CLR 会解析文件内容来更改程序及文件的定位和加载策略。
+- 配置文件包含 XML 代码，既能和应用程序关联，也能和机器关联。
+- Program.exe.config
+	```
+	<configuration>
+	  <runtime>
+	    <assemblyBinding xmlns="urn:schemas-microsoft-com:asm.vl">
+	      <probing privatePath="AuxFiles" />
+	    </assemblyBinding>
+	  </runtime>
+	</configuration>
+	```
+- CLR 定位程序及文件时，现在应用程序基目录查找。如果没有找到，查找 AuxFiles 子目录。可为 `probing` 元素的 `privatePath` 特性指定多个以分号分隔的路径。每个路径都相对于应用程序基目录。
+- XML 配置文件名称和位置：
+	- 对于 EXE，配置文件在基目录，EXE 全名加.config。
+	- 对于 ASP.NET Web 窗体应用程序，文件必须在 Web 应用程序的虚拟根目录中，且命名为 Web.config。子目录也可包含自己的 Web.config，且配置设置得到继承。eg.Http://Chenxinyuan.com/Github 的 Web 应用程序即会使用虚拟根目录的 Web.config 设置，也会使用 Github 子目录的。
+- .NET Framework 在安装时会创建 %SystemRoot%\Microsoft.Net\Framework\version\config\machine.config。Machine.config 是机器上运行的所有应用程序的默认设置。
+- CLR 定位程序及时会扫描基目录加通过配置文件 privatePath 指定的子目录。
+
+# 3 共享程序集合
+- 两种程序集，两种部署
+- 为程序集分配强命名
+- 全局程序集缓存
+- 在生成的程序集中引用强命名程序集
+- 强命名程序集能防篡改
+- “运行时”如何解析类型引用
+- 高级管理控制(配置)
+
+## 3.1 两种程序集，两种部署
+- CLR 支持两种程序集：弱命名程序集(避免歧义，没有术语对应)(weakly named assembly)和强命名程序集(strongly named assembly)。
+- 弱命名和强命名程序集结构完全相同。区别在于：强命名程序集使用发布者的公钥/私钥进行了签名。这一对密钥允许对程序集进行唯一性的标识、保护和版本控制，并允许部署到任何地方。由于程序集被唯一性的标识，所以当应用程序绑定到强命名程序集时，CLR 可以应用一些已知安全的策略。
+- 程序集可采用两种方式部署：私有和全局。
+	- 私有部署指部署到应用程序基目录或某个子目录。
+	- 全局部署指部署到一些公认位置。、
+	- 强命名可私有可全局，弱命名只能私有。
+
+## 3.2 为程序集分配强命名
+- 由多个应用程序访问的程序集必须放到公认的目录。检测到对程序集的引用时，CLR 必须能够自动检查该目录。
+- 问题：两个公司声称同名程序集，都放在相同公认目录，最后一个安装的会造成使用之前安装程序集的应用程序无法正常工作(Windows "DLL hell"，共享 DLL 全都复制到 System32 目录)。
+- 强命名程序集 4 个重要特性：文件名(不计扩展名)、版本号、语言文化和公钥。
+- 公钥数字很大，使用从公钥派生的小哈希值，称为公钥标记(public key token)。
+- 程序集标识字符串(程序集显示名称)：
+	```
+	"MyTypes, Version=1.0.1.0, Culture=neutral, PublicKeyToken=b77a5c561934e089"
+	"MyTypes, Version=1.0.1.0, Culture="en-US", PublicKeyToken=b77a5c561934e089"
+	"MyTypes, Version=2.0.3.0, Culture=neutral, PublicKeyToken=b77a5c561934e089"
+	"MyTypes, Version=1.0.1.0, Culture=neutral, PublicKeyToken=b03f5f7f1ld50a3a"
+	```
+- 无法根据“程序集标识符字符串”判断文件扩展名。
+- 辅助类
+	```
+	System.Reflection.AssemblyName
+	Culture, FullName, KeyPair, Name, Version
+	GetPublicKey(), GetPublicKeyToken(), SetPublicKey(), SetPublicKeyToken()
+	```	
+- 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
