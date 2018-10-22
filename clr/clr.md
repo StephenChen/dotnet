@@ -406,8 +406,27 @@ GF2_PMS1_E111.5_N32.6_20170421_L1A0002319092-MSS1
 	Culture, FullName, KeyPair, Name, Version
 	GetPublicKey(), GetPublicKeyToken(), SetPublicKey(), SetPublicKeyToken()
 	```	
-- 
+- 创建强命名程序集：用 .NET Framework SDK 和 Microsoft Visual Studio 随带的 StrongName 实用程序(SN.exe)获取密钥。生成公钥/私钥对：`SN -k MyCompany.snk`。文件中包含二进制形式的公钥和私钥。
+- 公钥数字很大：创建 .snk 后可使用 SN.exe 查看实际公钥。需要执行两次 SN.exe。
+	- 第一次用 `-p` 创建只含共要的文件(MyConmpany.PublicKey):
+	- `SN -p MyCompany.snk MyCompany.PublicKey sha256`
+	- 第二次用 `-tp` 传递只含公钥的文件：
+	- `SN -tp MyCompany.PublicKey`
+	- 输出：公钥(哈希算法:sha256) + 公钥标记
+- .Net Framework 4.5 引入了 增强型强命名(Enhanced Strong Naming)，生成与之前版本兼容的程序集，需用 AssemblySignatureKeyAttribute 创建联署签名(counter-signature)。‘
+- SN.exe 未提供显示私钥的途径。
+- 公钥太大，难以使用，设计了 公钥标记(public key token)。
+- 公钥标记是公钥的64位哈希值。SN.exe 的 -tp 开关在输出结果末尾显示了对应的公钥标记。
+- 创建强命名程序集：`csc /keyfile:MyCompany.snk Program.cs`
+- C# 编译器看到`/keyfile:<file>`会打开指定文件(*.snk)，用私钥对程序集进行签名，并将公钥嵌入清单。只能对含清单的程序及文件进行签名：程序集其他文件不能被显式签名。
+- “对文件进行签名”含义：生成强命名程序集时，程序集的 FileDef 清单元数据表列出构成程序集的所有文件。每讲一个文件名添加到清单，都对文件内容进行韩系处理。哈希值和文件名一道存储到 FileDef 表中。要覆盖默认哈希算法，使用 Al.exe 的`/algid`开关，或在程序集的某个源码中，在 assembly 这一级上应用定制特性 `System.Reflection.AssemblyAlgorithmIDAttribute`。默认使用 SHA-1 算法。
+- 生成包含清单的 PE 文件后，会对 PE 文件的完整内容(除去 Authenticode Signature、程序集强名称数据及 PE 头校验和)进行哈希处理，如图。哈希值用发布者的私钥进行签名，得到的 RSA 数字签名存储到 PE 文件的一个保留区域(进行哈希处理时，会忽略这个区域)。PE 文件的 CLR 头进行更新，反映数字签名在文件中的嵌入位置。
+![avatar](../cats_and_dogs/pho/clr/3.1 对程序集进行签名.JPG)
+- 发布者公钥也嵌入 PE 文件的 AssemblyDef 清单元数据表。
+- 由于公钥是一个很大的数字，为了节省存储空间。Microsoft 对公钥进行哈希处理，并获取哈希值的最后8个字节。AssemblyRef 表实际存储的是这种简化的公钥值(公钥标记)。但 CLR 在做出安全或信任决策时，永远都不会使用公钥标记。
 
+## 3.3 全局程序集缓存
+- 
 
 
 
