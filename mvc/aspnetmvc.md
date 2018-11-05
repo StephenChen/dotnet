@@ -173,4 +173,214 @@ var i = 1;
 	`public delegate int Compatison<in T>(T x, T y);	// list.Sort`
 
 - Lambda 表达式
-	- 本质就是匿名函数 λ
+	- 本质就是匿名函数，Lambda 表达式基于数学中λ演算，直接对应于其中的 lambda 抽象(lambda abstraction)，是一个匿名函数。可以包含表达式和语句，并且可用于创建委托和表达式树类型。
+	- Lambda 表达式的运算符为=>。=>运算符具有与赋值运算符(=)相同的优先级。
+	- Lambda 的基本形式是：`(input parameters) => expression`
+	- 只有在 Lambda 有一个输入参数时，括号才是可选的：
+		- `(x, y) => x == y`
+		- `(int x, string s) => s.Length > x`
+		- `() => SomeMethod()`
+	- 最常见的场景是 IEnumerable 和 IQueryable 接口的 Where<>(c=>c.ID>3)。
+	- Lambda 表达式中的变量范围：
+		- 捕获的变量将不会被作为垃圾回收，直至引用变量的委托超出范围为止。
+		- 在外部方法中看不到 Lambda 表达式内引入的变量。
+		- Lambda 表达式无法从封闭方法中直接捕获 ref 或 out 参数。
+		- Lambda 表达式中的返回语句不会导致封闭方法返回。
+		- Lambda 表达式不能包含其目标位于所包含匿名函数主体外部或内部的 goto 语句、break 语句或 continue 语句。
+	- Lambda 表达式缩写推演
+		- new Func<string, int>(delegate(string str) { return str.Length; });
+		- delegate(string str) { return str.Length; }	匿名函数
+		- (string str) => { return str.Length; }	Lambda 语句
+		- (string str) => str.Length	Lambda 表达式
+		- (str) => str.Length	让编译器推断参数类型
+		- str => str.Length	去掉不必要的括号
+	- 例如：
+	```
+	delegate int AddDel(int a, int b);	// 定义一个委托
+	#region lambda
+	
+	AddDel fun = delegate(int a, int b) { return a + b; };	// 匿名函数
+	// Console.WriteLine(fun(1, 3));
+	// lambda 参数类型可以进行隐式判断，可以省略类型 lambda 本质就是匿名函数
+	AddDel funLambda = (a, b) => a + b;
+	List<string> strs = new List<string>() { "1", "2", "3" };
+	var temp = strs.FindAll(s => int.Parse(s) > 1);
+	foreach (var item in temp) {
+		Console.WriteLine(item);
+	}
+	// Console.WriteLine(funLambda(1, 3));
+	
+	#endregion
+	
+	static void Main(string[] args) {
+		List<int> nums = new List<int>() { 1, 2, 3, 4, 6, 9, 12 };
+		// 使用委托的方式
+		List<int> evenNums = nums.FindAll(GetEvenNum);
+		foreach (var item in evenNums) {
+			Console.WriteLine(item);
+		}
+		
+		Console.WriteLine("使用 Lambda 的方式");
+		List<int> evenNumLambdas = nums.FindAll(n => n % 2 == 0);
+		foreach (var item in evenNumLambdas) {
+			Console.WriteLine(item);
+		}
+		Console.ReadKey();
+	}
+
+	static bool GetEvenNum(int num) {
+		if (num % 2 == 0) { 
+			return true;
+		}
+		return false;
+	}
+	```
+
+- 标准查询运算符(SQO)
+	- 定义在 System.Linq.Enumerable 类中的 50 多个为 IEnumerable<T>准备的扩展方法。
+	- 标准查询运算符提供了筛选、投影、聚合、排序等功能。
+	```
+	private List<User> InitLstData() {
+		new User { Id = 1, Name = "cxy1", Age = 21 },
+		new User { Id = 2, Name = "cxy2", Age = 22 },
+		new User { Id = 3, Name = "cxy3", Age = 23 },
+		new User { Id = 4, Name = "cxy4", Age = 24 }
+	};
+	- 筛选集合(Where)：提供对于一个集合的筛选功能，需要提供一个带 bool 返回值的“筛选器”(匿名方法、委托、Lambda 表达式均可)，表明集合中某个元素是否应该被返回。
+	```
+	var lst = InitLstData();
+	var result = lst.Where(x => x.Age >= 30).ToList();
+	result.ForEach(r => Console.WriteLine(string.Format("{0},{1},{2}", r.Id, r.Name, r.Age)));
+	Console.ReadKey();
+	```
+	- 查询投射 Select：返回新对象集合 IEnumerable<TSource>Select()。
+	```
+	var result = lst.Where(x => x.Age >= 30).Select(s => s.Name).ToList();
+	result.ForEach(x => Console.WriteLine(x));
+	- 统计数量 int Count()。
+	`lst.Where(x => x.Age >= 30).Count();`
+	- 多条件排序 OrderBy().ThenBy().ThenBy()
+	`lst.OrderBy(x => x.Age).OrderBy(x => x.Id)`
+	- 集合连接 Join():新加一个Student类，并初始化数据。
+	```
+	public class Student {
+		public int ID { get; set; }
+		public int UserId { get; set; }
+		public string ClassName { get; set; }
+	}
+	List<Student> lstStu = new List<Student>() {
+		new Student { ID = 1, UserId = 1, ClassName = "8ban" },
+		new Student { ID = 1, UserId = 3, ClassName = "2ban" },
+		new Student { ID = 1, UserId = 2, ClassName = "1ban" }};
+	var result = lst.Join(lstStu, u => u.Id, p => p.UserId, (u, p) => new { UserId = u.Id, Name = u.Name, ClassName = p.ClassName });
+	- 即时加载 FindAll
+	`List<User> lstUsr = lst.FindAll(x => x.Age >= 30);`
+	- SQO缺点：语句太庞大复杂。
+
+- LINQ
+	- 查询表达式
+	```
+	IEnumerable<Dog> listDogs = from dog in dogs
+	where dog.Age > 5
+	// let d = new { Name = dog.Name }
+	orderby dog.Age descending
+	select dog;
+	// select new { Name = dog.Name }
+	```
+	- 以 from 开始，以 select 或 group by 子句结尾。输出是一个 IEnumerable<T> 或 IQueryable<T> 集合。
+	- 注：T的类型由 select 或 group by 推断。
+	- LINQ 分组：
+	`IEnumerable<int, Dog>> listGroup = from dog in listDogs where dog.Age > 5 group dog by dog.Age;`
+	- 遍历分组：
+	```
+	foreach (IGrouping<int, Dog> group in listGroup) {
+		Console.WriteLine(group.Key + "岁：");
+		foreach (Dog d in group) {
+			Console.WriteLine(d.Name + ",age=" + d.Age);
+		}
+	}
+	```
+	- 注意：LINQ 查询语句编译后会转成标准查询运算符。
+	- LINQPad工具。
+
+### C# 4.0 新特性
+- 可选参数和命名参数
+	- 可选参数：当调用方法，不给参数赋值时，使用定义的默认值。
+		- 可选参数不能为参数列表的第1个参数，必须位于所有的必选参数之后(除非没有必选参数);
+		- 可选参数必须指定默认值，而且默认值必须是一个常量表达式，不能为变量;
+		- 所有可选参数以后的参数都必须是可选参数。
+	- 命名参数：通过命名参数调用，实参顺序可以和形参不同。
+	- 对于简单的重载，可以使用可选参数和命名参数混合的形式来定义方法，提高代码的运行效率。
+	```
+	public class Dog {
+		public string Name { get; set; }
+		public int Age { get; set; }
+		/// <summary>
+		/// 参数默认值 和 命名参数
+		/// </summary>
+		/// <param name="name"></param>
+		/// <param name="age"></param>
+		public void Say(string name = "wangwangwang", int age = 1) {
+			Console.WriteLine(name + "," + age);
+		}
+	}
+	```
+	- 让 name 使用默认值，age 怎么给值：`_dog.Say(age:3);`。
+
+- Dynamic 特性
+	- 需引用 System.Dynamic 命名空间：
+	```
+	using System.Dynamic;
+	// Dynamic
+	dynamic Customer = new ExpandoObject();
+	Customer.Name = "cxy";
+	Customer.Male = true;
+	Customer.Age = 24;
+	Console.WriteLine(Customer.Name + Customer.Age + Customer.Male);
+	Console.ReadKey();
+	```
+
+- params(并非新的语法特性)：使用 params 关键字作为方法参数可以指定采用数目可变的参数，可以发送参数声明中所指定类型用逗号分隔的参数列表或指定类型的参数数组，还可以不发送参数。
+	- 注：在方法声明中的 params 关键字之后不允许有任何其他参数，并且在方法生命中只允许一个 params 关键字。
+	```
+	public void ParamsMethod(params int[] list) {
+		for (int i = 0; i < list.Length; i++) {
+			Console.WriteLine(list[i]);
+		}
+		Console.ReadLine();
+	}
+	
+	ParamsMethod(25, 24, 21, 15);
+	ParamsMethod(25, 24, 21, 15);
+	```
+
+### C# 5.0 新特性
+- 最重要的就是异步个等待(async 和 await)，在方法的返回值前面添加关键字 async，同时在方法体中需要异步调用的方法面前再添加关键字 await。这个异步方法必须以 Task 或者 Task<TResult> 作为返回值。
+
+
+## Entity Framework
+- ADO.NET Entity Framework
+
+### EF 简
+- O/R Mapping
+	- 广义上，ORM 指面向对象的对象模型和关系型数据库的数据结构之间的相互转换。
+	- 狭义上，ORM 可被认为是基于关系型数据库的数据存储，实现一个虚拟的面向对象的数据访问接口。
+
+- ORM in EF
+	- 利用抽象化数据结构，将每个数据库对象转换成应用程序对象(entity)，数据字段转换为属性(property)，关系转换为结合属性(association)。
+	- 抽象化结构：
+		- 概念层：负责向上的对象与属性显露与访问。
+		- 对应层：将上方的概念层和底下的存储层的数据结构对应在一起。
+		- 存储层：依不同数据库与数据结构而显露出实体的数据结构体，和 Provider(数据提供者)，负责实际对数据库的访问和 SQL 的产生。
+
+- EF 优点
+	- 极大地提高开发效率。
+	- 提供了强大的模型设计器。
+	- 跨数据库支持。
+- EF 缺点
+	- 性能不好，性能有损耗(生成 SQL 脚本阶段)。
+
+### Database First 开发方式(比较旧，不看了)
+
+### EF 增删改查
+- 附加数据库
