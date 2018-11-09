@@ -427,19 +427,64 @@ using System.Reflection;
 - 开发和测试时在 GAC 中安装强命名程序集最常用的工具是 GACUtil.exe。
 - 使用 GACUtil.exe 的 `/i` 开关将程序集安装到 GAC，`/u` 开关从 GAC 卸载程序集。
 - 不能将弱命名程序集放到 GAC。向 GACUtil.exe 传递弱命名程序集的文件名会报错：`将程序集添加到缓存失败：尝试安装没有强命名的程序集。` 
-- 
+- 在生产环境部署，安装或卸载程序集时指定 `/i`或`/u` 和`/r`。`/r`将程序集与Windows的安装与卸载引擎集成。告诉系统哪些应用需要程序集，并将应用程序与程序集绑定。
+- 如果强命名程序集被打包到.cab 文件中，或者被压缩。首先必须解压成临时文件，再使用 GACUtil.exe 安装到 GAC 中。
+- .NET Framework 重分发包不随带提供 GACUtil.exe。如果应用程序含有需要部署到 GAC 的程序集，应使用 Windows Installer(MSI)。
 
+## 3.4 在生成的程序集中引用强命名程序集
+- CSC.exe 会尝试在以下目录中查找程序集
+	- 1.工作目录。
+	- 2.CSC.exe 所在的目录，目录中还包含 CLR 的各种 DLL 文件。
+	- 3.使用 `/lib` 编译器开关指定的任何目录。
+	- 4.使用 LIB 环境变量指定的任何目录。
+- 如果程序集引用了 System.Drawing.dll，并在指定 CSC.exe 时使用 `/reference:System.Drawing.dll`。编译器会在 CSC.exe 自己所在的目录找到 System.Drawing.dll 文件(该目录还存储了与编译器对应版本的CLR的DLL)。编译时在此找寻程序集，运行时不会。
+- 装.NET Framework 时，会安装 Microsoft 的程序及文件的两份拷贝。一份安装到编译器/CLR 目录，一份安装到 GAC 的子目录。编译器/CLR 目录中的文件方便生成程序集，而 GAC 中的拷贝则方便在运行时加载。
 
+## 3.5 强命名程序集能放篡改
+- 程序集安装到 GAC 时，系统对包含清单的那个文件的内容进行哈希处理，将哈希值与 PE 文件中嵌入的 RSA 数字签名进行比较(在用公钥解除了签名之后)。系统还会对程序集的其他文件的内容进行哈希处理，并将哈希值与清单文件的 FileDef 表中存储的哈希值进行比较。
+- 每次应用程序执行并加载程序集时，都会对文件进行哈希处理，以牺牲性能为代价，保证程序集文件内容没有被篡改。
+- 将强命名程序集安装到 GAC 时，系统会执行检查，确保包含清单的文件没有被篡改，检查仅在安装时执行一次。
+- 为增强性能，如果强命名程序集被完全信任，并加载到完全信任的 AppDomain 中，CLR 将不会检查该程序集是否被篡改。
+- 从非 GAC 的目录中加载强命名程序集时，CLR 会校验程序集的清单文件，造成该文件每次加载都造成额外的性能开销。
 
+## 3.6 延迟签名
+- 开发测试程序集时，访问私钥麻烦。.NET Framework 提供了延迟签名(delayed signing)，也称部分签名(partial signing)。不用私钥签名，无法防篡改。
+- C# 编译器使用 `/delaysign`。
+- 编译器或 AL.exe 检测到要进行延迟签名，生成程序集的 AssemblyDef 清单记录项，包含程序集的公钥。文件内容不会在这个时候进行哈希处理。
+- 目前生成的程序集没有有效签名。安装到 GAC 会失败，因为未对文件内容进行哈希处理(文件表面上已经被篡改了)。需要使用 SN.exe 指定 `-Vr` 开关，程序集在运行时加载时，CLR 会跳过对哈希值的检查。在内部，SN 的 `-Vr` 开关会将程序集的身份添加到注册表子项中：`HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\StrongName\Verification`。
+- 打包部署：使用 SN.exe `-R`，并指定包含了私钥的文件。`-R` 指示 SN.exe 对文件内容进行哈希处理，并用私钥对其进行签名。使用 SN.exe `-Vu`或`-Vx` 重启对这个程序集的验证。
+- 使用延迟签名技术开发程序集的步骤：
+	- 开发期，有只含公钥的文件，使用 `/keyfile`和`/delaysign`编译。
+	`csc /keyfile:MyCompany.PublicKey /delaysign MyAssembly.cs`
+	- 生成程序集后，是 CLR 暂时信任程序集内容，不对其进行哈希处理，也不进行哈希比较。只需执行一次。
+	`SN.exe -Vr MyAssembly.dll`
+	- 重启验证
+	`SN -Vu MyAssembly.dll`
+	- 准备打包部署，有私钥文件。
+	`SN.exe -Ra MyAssembly.dll MyCompany.PrivateKey`
+- "加密服务提供程序"(Cryptographic Service Provider, CSP)提供了对密钥的位置进行抽象的容器。
+- 如果公钥/私钥在 CSP 容器中，编译时(CSC.exe)指定 `/keycontainer` 而不是 `/keyfile` ；链接时(AL.exe)指定 `/keyname` 而不是 `/keyfile`；使用强命名程序(SN.exe)对延迟签名的程序集进行重新签名时，指定 `-Rc` 而不是 `-R`。
+- 打包前，如果想对程序集运行混淆器(obfuscator)程序(完全签名后就不能运行混淆器，否则哈希值不正确)，或者进行其他形式的“生成后”(post-build)操作，就利用延迟签名技术。
 
+## 3.7 私有部署强命名程序集
+- 应用程序安装时安装一个 XML 配置文件，用 codeBase 元素指出共享程序集路径，实际标记了一个 URL。这个 URL 可引用用户机器上的任何目录，也可引用 Web 地址。如果引用 Web 地址，CLR 会自动下载文件，存到用户的下载缓存(%UserProfile%\Local Setting\Application Data\Assembly 下的子目录)。
 
-
-
-
-
-
-
-
+## 3.8 “运行时”如何解析类型引用
+```
+public sealed class Program {
+	public static void Main() {
+		System.Console.WeiteLine("Hi");
+	}
+}
+```
+- 运行应用程序，CLR 会加载并初始化自身，读取程序集的 CLR 头，查找标识了应用程序入口方法(Main)的 MethodDefToken，检索 MethodDef 元数据表找到方法的 IL 代码在文件中的偏移量，将 IL 代码 JIT 编译成本机代码(编译时会对代码进行验证以确保类型安全)，最后执行本机代码。
+- 解析引用的类型时，CLR 可能在三个地方找到类型：
+	- 相同文件：编译时便能发现对相同文件中的类型的访问，称为早期绑定(early binding)。类型直接从文件中加载，执行继续。
+	- 不同文件，相同程序集：“运行时”确保被引用的文件在当前程序集元数据的 FileDef 表中，检查加载程序集清单文件的目录，加载被引用文件，检查哈希值以确保文件完整性。发现类型的程序，执行继续。
+	- 不同文件，不同程序集：如果引用的类型在其他程序集的文件中，“运行时”会加载被引用程序集的清单文件。如果需要的类型不在文件中，就继续加载包含了类型的文件。发现类型的成员，执行继续。
+- 解析类型引用时有任何错误(找不到文件、文件无法加载、哈希值不匹配等)都会抛出相应异常。
+- 注：ModuleDef，ModuleRef 和 FileDef 元数据表在引用文件时使用了文件名和扩展名。但 AssemblyRef 元数据表只使用文件名，无扩展名。和程序集绑定时，系统通过探测目录来尝试定位文件，自动附加 .dll 和 exe 扩展名。
+- 注：可以向 System.AppDomain 的 AssemblyResolve，ReflectionOnlyAssemblyResolve 和 TypeResolve 事件注册回调方法。在回调方法中执行解决绑定问题的代码，使应用程序不抛出异常而继续运行。
 
 
 

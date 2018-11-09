@@ -380,7 +380,10 @@ var i = 1;
 - EF 缺点
 	- 性能不好，性能有损耗(生成 SQL 脚本阶段)。
 
-### Database First 开发方式(比较旧，不看了)
-
+### Database First 开发方式(旧的开发方式)
+- 创建 Database First Demo
+- EF 原理
+	- 实体数据模型(EDM):EF 中存在一个主要的文件：*.edmx，是 EF 的核心。
+- 
 ### EF 增删改查
 - 附加数据库
