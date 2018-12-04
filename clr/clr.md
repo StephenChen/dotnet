@@ -486,9 +486,14 @@ public sealed class Program {
 - 注：ModuleDef，ModuleRef 和 FileDef 元数据表在引用文件时使用了文件名和扩展名。但 AssemblyRef 元数据表只使用文件名，无扩展名。和程序集绑定时，系统通过探测目录来尝试定位文件，自动附加 .dll 和 exe 扩展名。
 - 注：可以向 System.AppDomain 的 AssemblyResolve，ReflectionOnlyAssemblyResolve 和 TypeResolve 事件注册回调方法。在回调方法中执行解决绑定问题的代码，使应用程序不抛出异常而继续运行。
 
+![avatar](../cats_and_dogs/pho/clr/3.2 CLR通过元数据定位程序集.JPG)
 
+- CLR 通过 名称、版本、语言文化、公钥 识别程序集
+- CLR 通过 名称、版本、语言文化、公钥、CPU架构 识别GAC
+- CLR 提供将类型(类、结构、枚举、接口或委托)从一个程序集移动到另一个程序集的功能。需要使用 `System.Runtime.CompilerServices.TypeForwardedToAttribute` 和 `System.Runtime.CompilerServices.TyteForwardedFromAttribute`。
 
-
+## 3.9 高级管理控制(配置)
+- 
 
 
 
