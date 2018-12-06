@@ -493,8 +493,109 @@ public sealed class Program {
 - CLR 提供将类型(类、结构、枚举、接口或委托)从一个程序集移动到另一个程序集的功能。需要使用 `System.Runtime.CompilerServices.TypeForwardedToAttribute` 和 `System.Runtime.CompilerServices.TyteForwardedFromAttribute`。
 
 ## 3.9 高级管理控制(配置)
-- 
+- XML配置文件(XML 文件为 CLR 提供了丰富的信息)：
+	- probing 元素
+	- 第一个 dependentAssembly, assemblyIdentity 和 bindingRedirect 元素
+	- codeBase 元素
+	- 第二个 dependentAssembly, assemblyIdentity 和 bindingRedirect 元素
+	- publisherPolicy 元素
 
+- 系统允许使用和元数据所记录的不完全匹配的程序集版本。
+
+- 发布者策略控制
+	- 发布者穿件包含该发布者策略配置文件的程序集：
+	```
+	AL.exe	/out:Policy.1.0. SomeClassLibrary.dll
+			/version:1.0.0.0
+			/keyfile:MyCompany.snk
+			/linkresource: SomeClassLibrary.config
+	```
+
+- `/out` 告诉 AL.exe 创建新 PE 文件。Policy 告诉 CLR 该程序包含发布者策略信息。
+- `/version` 发布者策略程序集的版本，与程序集本身没有任何关系。
+- `/keyfile` 使用发布者的“公钥/私钥对”对发布者策略程序集进行签名。
+- `linkresource` 告诉 AL.exe 将XML配置文件作为程序集的一个单独的文件。
+
+- 发布者策略程序集必须安装到 GAC。
+- 管理员可指示CLR忽略发布者策略程序集。应用程序配置文件添加 `publisherPolicy` 元素：`<publisherPolicy apply="no"/>`
+- `publisherPolicy` 元素可作为应用程序配置文件的 `<assemblyBinding>` 元素的子元素使用，使其应用于所有程序集，也可作为应用程序配置文件的 `<dependantAssembly>` 元素的子元素使用，使其应用于特定程序集。
+
+- 创建发布者策略程序集，发布者相当于肯定了程序集不同版本的兼容性。
+
+
+
+
+
+II.设计类型
+- 类型基础
+- 基元类型、引用类型和值类型
+- 类型和成员基础
+- 常量和字段
+- 方法
+- 参数
+- 属性
+- 事件
+- 泛型
+- 接口
+
+# 类型基础
+- 所有类型都从 System.Object 派生
+- 类型转换
+- 命名空间和程序集
+- 运行时的相互关系
+
+## 4.1 所有类型都从 System.Object 派生
+- System.Object 类提供的公共实例方法。
+	- Equals：如果两个对象具有相同的值，就返回 true。(5.3.2)
+	- GetHashCode：返回对象的值的哈希码。如果某个类型的对象要在哈希表集合(比如 Dictionary)中作为键使用，类型应重写该方法。方法应该为不同对象提供良好分布(所谓良好分布，是指这对所有输入，GetHashCode生成的哈希值应该在所有整数中产生一个随机的分布。)。将这个方法设计到 Object 中并不恰当。大多数类型永远不会在哈希表中作为键使用；该方法本该在接口中定义。(5.4)
+	- ToString：默认返回类型的完整名称(this.GetType().FullName)。但经常重写该方法来返回它们的值的字符串表示(Boolean，Int32)。注意，`ToString`理论上应察觉与调用线程关联的 `CultureInfo` 并采取相应行动。(14)
+	- GetType:返回从 `Type` 派生的一个类型的实例，指出调用 GetType 的对象是什么类型。返回的 Type 对象可以和反射类配合，获取与对象的类型有关的元数据信息。GetType 是非虚方法，目的是防止类重写改方法，隐瞒其类型，进而破坏类型安全性。(23)
+- 从 System.Object 派生的类型能访问的受保护方法。
+	- MenberwiseClone：这个非虚方法创建类型的新实例，并将新对象的实例字段设与 this 对象的实例字段完全一致。返回对新实例的引用。 
+	- Finalize：在垃圾回收器判断对象应该作为垃圾被回收之后，在对象的内存被实际回收之前，会调用这个虚方法。需要在回收内存前执行清理工作的类型应重写该方法。(21)
+
+- `new` 操作符所做的事情：
+	- 计算类型及其所有基类型(一直到 System.Object，虽然它没有定义自己的实例字段)中定义的所有实例字段需要的字节数。对象每个对象都需要一些额外的成员(称为 overhead 成员，"开销成员")，包括“类型对象指针”(type object pointer)和“同步块索引”(sync block index)。CLR 利用这些成员管理对象。额外成员的字节数要计入对象大小。
+	- 从托管堆中分配类型要求的字节数，从而分配对象的内存，分配的所有字节都设为0。
+	- 初始化对象的“类型对象指针”和“同步块索引”成员。
+	- 调用类型的实例构造器，传递在 `new` 调用中指定的实参。大多数编译器都在构造器中自动生成代码来调用基类构造器。最终调用 System.Object 的构造器。
+
+- `new` 执行了所有操作后，返回指向新建对象一个引用(或指针)。
+- 没有 `new` 对应的 `delete`，没有办法显示释放为对象分配的内存。(21)
+
+## 4.2 类型转换
+- is，as
+
+## 4.3 命名空间和程序集
+- C#的 using 指令指示编译器尝试为类型名称附加不同的前缀，直到找到匹配项。
+- 检查类型定义时，编译器必须知道要在什么程序集中检查。通过 `/reference` 编译器开关实现。
+
+## 4.4 运行时的相互关系
+- CLR 的一个 Windows 进程。该进程可能有多个线程。线程创建时会分配到 1MB 的栈。栈空间用于向方法传递实参，方法内部定义的局部变量也在栈上。栈从高位内存向地位内存地址构建。
+- 最简单的方法包含“序幕”(prologue)代码，在方法开始工作前对其进行初始化。“尾声”(epilogue)代码，在方法完成后对其进行清理，以便返回至调用者。
+
+```
+void M1() { String name = "Joe"; M2(name); ... return; }
+void M2(String s) { Int32 length = s.Length; ... return; }
+```
+线程栈：
+|	······
+|	······
+|	······
+|————————————
+|name(String)	M1的局部变量	| String name = "Joe"
+|————————————
+|s(String)		M2的参数		| 造成 name 中的地址被压入栈，变量 s 标识栈位置
+|————————————				| M2(name)
+|[返回地址]					| 调用方法会将“返回地址”压入栈
+|————————————
+|length(Int32)	M2的局部变量
+|————————————
+|
+
+- M1调用M2，将局部变量 name 作为实参传递。造成 name 局部变量中的地址被压入栈。M2方法内部使用参数变量 s 标识栈位置。
+- M2抵达 return，造成 CPU 的指令指针内设置成栈中的返回地址，M2的栈帧展开(unwind)。M1继续执行M2调用之后的代码，M1的栈帧将准确反映M1需要的状态。
+- 栈帧(stack frame)代表当前线程的调用栈的一个方法调用。执行线程的过程中，进行的每个方法调用都会在调用栈中创建并压入一个 StackFrame。
 
 
 
