@@ -597,7 +597,92 @@ void M2(String s) { Int32 length = s.Length; ... return; }
 - M2抵达 return，造成 CPU 的指令指针内设置成栈中的返回地址，M2的栈帧展开(unwind)。M1继续执行M2调用之后的代码，M1的栈帧将准确反映M1需要的状态。
 - 栈帧(stack frame)代表当前线程的调用栈的一个方法调用。执行线程的过程中，进行的每个方法调用都会在调用栈中创建并压入一个 StackFrame。
 
+- 复杂情况见书本P93。
 
+- CLR工作方式关键词：线程栈、实参、局部变量、实参和变量如何引用托管堆上的对象。对象含有一个指针指向对象的类型对象(类型对象中包含静态字段和方法表)。JIT 编译器如何决定静态方法、非虚实例方法及虚实例方法的调用方式。
+
+- CLR 开始在一个进程中运行时，会立即为 MSCorLib.dll 中定义的 System.Type 类型创建一个特殊的类型对象。其他类型对象都是该类型的“实例”。因此，其他对象的类型对象指针成员会初始化成对 System.Type 类型对象的引用。
+- System.Type 类型对象的类型对象指针指向其本身。System.Object 的 GetType 方法返回存储在指定对象的“类型对象指针”成员中的地址。也就是，GetType 方法返回指向对象的类型对象的指针
+
+
+
+# 基元类型、引用类型和值类型
+- 编程语言的基元类型
+- 引用类型和值类型
+- 值类型的装箱和拆箱
+- 对象哈希码
+- dynamic 基元类型
+
+## 5.1 编程语言的基元类型
+- 分配一个整数：
+```
+System.Int32 a = new System.Int32();
+int a = 0;
+```
+- 两种生成的 IL 代码完全一致。编译器直接支持的数据类型称为基元类型(primitive type)。基元类型直接映射到 Framework 类库(FCL)中存在的类型。eg.C#的 int 直接映射到 System.Int32 类型。
+- 只要是符合公共语言规范(CLS)的类型，其他语言都提供了类似的基元类型。
+- C#基元类型：sbyte, byte, short, ushort, int, uint, long, ulong, char, float, double, bool, decimal, string, object, dunamic。
+- char System.Char 16位Unicode字符(char不像在非托管C++中那样代表一个8位值)
+- decimal System.Decimal 128位高精度浮点值，常用语不容许舍入误差的金融计算。128位中，1位是符号，96位是值本身(N)，8位是比例因子(k)。decimal 实际值是 ±N×10^k，其中 -28<=k<=0。其余位没有使用。
+- dynamic System.Object 对于CLR，dynamic 和 object 完全一致。但C# 编译器允许使用简单的语法让 dynamic 变量参与动态调度。(5.5)
+
+- C#编译器支持与类型转换、字面值(literal，直接量或文字常量)以及操作符有关的模式。
+- 对数字转换，C#总进行截断。Int32 a = (Single)6.8; a = 6;
+- 基本类型能写成字面值(literal)。字面值可被看成是类型本身的实例。
+- `Console.WriteLine(123.ToString() + 456.ToString());  // "123456"`
+
+- checked 和 unchecked 基元类型操作
+- 对基元类型执行的许多算术运算都可能造成溢出：
+```
+Byte b = 100;
+b = (Byte)(b + 200);  // b计算完是44(或0x2C)
+```
+- 极少数时候(计算哈希值或者校验和)，这种溢出可以接受，还是所希望的。
+- C/C++不将溢出视为错误，允许值回滚(wrap，wrap-around，指一个值超过了它的类型所允许的最大值，从而“回滚”到一个非常小的、负的或者未定义的值。)。
+- CLR 提供了一些特殊的 IL 指令，允许编译器选择它认为最恰当的行为。CLR 有 `add` 指令，作用是将两个值相加，但不执行溢出检查。还有 `add.ovf`，在溢出时抛出`System.OverflowException`异常。同样的有 `sub/sub.ovf, mul/mul.ovf, conv/conv.ovf`。
+- 溢出检查默认关闭。使用 `/checked+` 编译器开关全局控制。
+- 特定区域控制，`checked`和`unchecked`。
+```
+UInt32 invalid = unchecked((UInt32)(-1));	// OK
+
+Byte b = 100;
+b = checked((Byte)(b+200));	// 抛出 OverflowException 异常
+b = (Byte)checked(b+200);	// b为44，不会抛出异常
+
+checked {				// 开始 checked 块
+	Byte b = 100;
+	b = (Byte)(b+200);	// 简化为 b+=200;	// 该表达式会进行溢出检查 
+}						// 结束 checked 块
+```
+- 在 checked 操作符或语句中调用方法，不会对该方法造成任何影像。
+
+# 5.2 引用类型和值类型
+- CLR 支持两种类型：引用类型和值类型。
+- 使用引用类型需留意性能问题：
+	- 1.内存必须从托管堆分配。
+	- 2.堆上分配的每个对象都有一些额外成员，这些成员必须初始化。
+	- 3.对象中的其他字节(为字段而设)总是设为零。
+	- 4.从托管堆分配对象时，可能强制执行一次垃圾回收。
+
+- 值类型的实例一般在线程栈上分配。在代表值类型实例的变量中不包含指向实例的指针。相反，变量中包含了实例本身的字段。值类型的实例不受垃圾回收器的控制。
+- 所有引用类型称为类，System.Exception 类。所有值类型称为结构或枚举，System.Int32 结构、System.IO.FileAttributes 枚举。
+- 所有结构都是抽象类型 `System.ValueType` 的直接派生类。`System.ValueType` 本身又直接从 `System.Object` 派生。所有值类型都必须从 `System.ValueType` 派生。所有枚举都从 `System.Enum` 抽象类型派生，`System.Enum` 又从 `System.ValueType` 派生。
+- 所有值类型都隐式密封，无法作为基类。
+
+```
+// 值类型(因为'struct')
+struct SomeVal { public Int32 x; }
+
+// 通过编译，因为 C# 认为 v1 的字段已初始化为 0
+SomeVal v1 = new SomeVal();
+Int32 a = v1.x;
+
+// 不能通过编译，因为 C# 不认为 v1 的字段已初始化为 0
+SomeVal v1;
+Int32 a = v1.x;
+```
+
+- 
 
 
 
