@@ -682,7 +682,445 @@ SomeVal v1;
 Int32 a = v1.x;
 ```
 
+- 值类型有时能提供更好的性能。除非满足一下全部条件，否则不应将类型声明为值类型。
+	- 类型具有基元类型的行为。如果类型没有提供会更改其字段的成员，就说该类型是不可变(immutable)类型。对于许多值类型，建议将全部字段标记为 readonly(7)。
+	- 类型不需要从其他任何类型继承。
+	- 类型也不派生出其他任何类型。
+	- !!!以下条件最好满足：
+	- 类型的实例较小(16字节或更小)。
+	- 类型的实例较大，但不作为方法实参传递，也不从方法返回。
+
+- 值类型的主要优势是不作为对象在托管堆上分配。
+	- 值类型对象有两种表示形式：未装箱和已装箱。引用类型总是处于已装箱形式。
+	- 值类型从 System.ValueType 派生。该类型提供了与 System.Object 相同的方法。但 System.ValueType 重写了 Equals 方法，能在两个对象的字段完全匹配的前提下返回 true。此外，System.ValueType 重写了 GetHashCode 方法。生产哈希码时，这个重写方法所用的算法会将对象的实例字段中的值考虑在内。由于这个默认实现存在性能问题，所以定义自己的值类型时应重写 Equals 和 GetHashCode 方法，并提供它们的显示实现。
+	- 由于不能将值类型作为基类型来定义新的值类型或者新的引用类型，所以不应在值类型中引入任何新的虚方法。所有的方法都隐式密封(不可重写)。
+	- 引用类型的变量包含堆中对象的地址。引用类型的变量创建时默认初始化为 null，表名当前不指向有效对象。值类型的变量总是包含其基础类型的一个值，而且值类型的所有成员都初始化为 0。CLR 确实允许为值类型添加“可空”(nullability)标识。(19)
+	- 将值类型变量赋给另一个值类型变量，会执行逐字段的复制。将引用类型的变量赋给另一个引用类型的变量只复制内存地址。
+	- 基于上一条，两个或多个引用类型变量能引用堆中同一个对象，所以对一个变量执行的操作可能影响到另一个变量引用的对象。对值类型变量执行的操作不可能影响另一个值类型变量。
+
+- CLR 如何控制类型中的字段布局
+	- 为了提高性能，CLR 能按照它所选择的任何方式排列类型的字段。但在定义类型时，针对类型的各个字段，可以严格按照自己制定的顺序排列。
+	- 为自己定义的类或者结构应用 `System.Runtime.InteropServices.StructLayoutAttribute`特性。可向该特性的构造器传递 `LayoutKind.Auto`(自动排列) 或 `LayoutKind.Sequential`(保持书写字段布局) 或 `LayoutKind.Explicit`(利用偏移量在内存中显示排列字段)。如果不为类型显示指定 `StructLayoutAttribute`，编译器会选择它认为最好的布局。
+	- Microsoft C#编译器默认为引用类型选择 `LayoutKind.Auto`，为值类型选择 `LayoutKind.Sequential`。C#编译器团队认为和非托管代码互操作时经常用到结构。为此，字段必须保持程序员定义的顺序。然而，加入创建的值类型不与非托管代码互操作，就应该覆盖C#编译器的默认设定。
+	```
+	// 让 CLR 自动排列字段以增强这个值类型的性能
+	[StructLayout(LayoutKind.Auto)]
+	internal struct SomeValType {
+		private readonly Byte m_b;
+		private readonly Int16 m_x;
+		...
+	}
+	```
+	- `StructLayoutAttribute` 允许显式指定每个字段的偏移量， 构造器传递 `LayoutKind.Explicit`。向值类型中的每个字段应用 `System.Runtime.InteropServices.FieldOffsetAttribute` 特性的实例，向该特性的构造器传递 `Int32` 值来指出字段第一个字节距离实例起始处的偏移量(以字节为单位)。显式布局常用于模拟非托管C/C++中的 union(特殊的类，union 中的数据成员在内存中的存储相互重叠。每个数据成员都从相同内存地址开始。分配给 union 的存储区数量是包含它最大数据成员所需的内存数。同一时刻只有一个成员可以被赋值。)，因为多个字段可起始于内存的相同偏移位置。
+	```
+	// 开发人员显式排列这个值类型的字段
+	[StructLayout(LayoutKind.Explicit)]
+	internal struct SomeValType {
+		[FieldOffset(0)]
+		private readonly Byte m_b;	// m_b 和 m_x 字段在该类型的实例中相互重叠[FieldOffset(0)]
+		private readonly Int16 m_x;	// m_b 和 m_x 字段在该类型的实例中相互重叠
+	}
+	```
+	- 在类型中，一个引用类型和一个值类型相互重叠是不合法的。虽然允许多个引用类型在同一个起始偏移位置相互重叠，但这无法验证(unverifiable)。定义类型，在其中让多个值类型相互叠加重叠是合法的。但是，为了使这样的类型能够验证(verifiable)，所有重叠字节都必须能通过公共字段访问。
+
+
+# 5.3 值类型的装箱和拆箱
+- 将值类型转换成引用类型要适用装箱机制。
+	- 在托管堆中分配内存。分配的内存量是值类型个字段所需的内存量，还要加上托管堆所有对象都有的两个额外成员(类型对象指针和同步块索引)所需的内存量。
+	- 值类型的字段复制到新分配的堆内存。
+	- 返回对象地址。现在改地址是对象引用：值类型成了引用类型。
+- 已装箱值类型实例在拆箱时，内部发生下列：
+	- 如果包含“对已装箱值类型实例的引用”的变量为`null`，抛出`NullReferenceException`异常。
+	- 如果引用的对象不是所需值类型的已装箱实例，抛出`InvalidCastException`异常。(CLR 还允许将值类型拆箱为相同值类型的可空版本)
+	```
+	public static void Main() {
+		Int32 x = 5;
+		Object o = x;		// 对 x 装箱，o 引用已装箱对象
+		Int16 y = (Int16)o;	// 抛出 InvalidCastException 异常
+		Int16 y = (Int16)(Int32)o;	// 先拆箱为正确类型，再转型
+	```
+- 如果知道自己的代码会造成编译器反复对一个值类型装箱，改成用手动方式对值类型进行装箱。
+- 由于未装箱的值类型没有同步块索引，所以不能说用 `System.Threading.Monitor` 类型的方法(或者 C# lock 语句)让多个线程同步对实例的访问。
+
+```
+using System;
+
+internal struct Point : IComparable {
+	private Int32 m_x, m_y;
+
+	// 构造器负责初始化字段
+	public Point(Int32 x, Int32 y) {
+		m_x = x;
+		m_y = y;
+	}
+
+	// 重写从 System.ValueType 继承的 ToString 方法
+	public override String ToString() {
+		return String.Format("({0}, {1})", m_x.ToString(), m_y.ToString());
+	}
+
+	// 实现类型安全的 CompareTo 方法
+	public Int32 CompareTo(Point other) {
+		// 利用勾股定理计算哪个 point 距离原点(0, 0)更远
+		return Math.Sign(Math.Sqrt(m_x * m_x + m_y * m_y) - 
+			Math.Sqrt(other.m_x * other.m_x + other.m_y * other.m_y));
+	}
+	// 实现 IComparable 的 CompareTo 方法
+	public Int32 CompareTo(Object o) {
+		if (GetType() != o.GetType()) {
+			throw new ArgumentException("o is not a point");
+		}
+		// 调用类型安全的 CompareTo 方法
+		return CompareTo((Point)o);
+	}
+}
+
+public static class Program
+{
+	public static void Main()
+	{
+		// 在栈上创建两个 Point 实例
+		Point p1 = new Point(10, 10);
+		Point p2 = new Point(20, 20);
+
+		// 调用 ToString(虚方法)不装箱 p1
+		Console.WriteLine(p1.ToString());		// 显示"(10, 10)"
+
+		// 调用 GetType(非虚方法)时，要对 p1 进行装箱
+		Console.WriteLine(p1.GetType());		// 显示"Point"
+
+		// 调用 CompareTo 不装箱 p1
+		// 由于调用的是 CompareTo(Point)，所以 p2 不装箱
+		Console.WriteLine(p1.CompareTo(p2));    // 显示"-1"
+
+		// p1 要装箱，引用放到 c 中
+		IComparable c = p1;
+		Console.WriteLine(c.GetType());			// 显示"Point"
+
+		// 调用 CompareTo 不装箱 p1
+		// 由于向 CompareTo 传递的不是 Point 变量，
+		// 所以调用的是 CompareTo(Object)，它要求获取对已装箱 Point 的引用
+		// c 不装箱是因为它本来就引用已装箱 Point
+		Console.WriteLine(p1.CompareTo(c));		// 显示"0"
+
+		// c 不装箱，因为它本来就引用已装箱 Point
+		// p2 要装箱，因为调用的是 CompareTo(Object)
+		Console.WriteLine(c.CompareTo(p2));		// 显示"-1"
+
+		// 对 c 拆箱，字段复制到 p2 中
+		p2 = (Point)c;
+
+		// 证明字段已复制到 p2 中
+		Console.WriteLine(p2.ToString());		// 显示"(10, 10)"
+	}
+}
+```
+
+## 5.3.1 使用接口更改已装箱值类型中的字段(以及为什么不应该这样做)
+```
+using System
+
+// Point 是值类型
+internal struct Point {
+	private Int32 m_x, m_y;
+
+	public Point(Int32 x, Int32 y) {
+		m_x = x; m_y = y;
+	}
+
+	public void Change(Int32 x, Int32 y) {
+		m_x = x; m_y = y;
+	}
+
+	public override String ToString() {
+		return String.Format("({0}, {1})", m_x.ToString(), m_y.ToString());
+	}
+}
+
+public sealed class Program {
+	public static void Main() {
+		Point p = new Point(1, 1);
+		Console.WriteLine(p);		// (1, 1)
+
+		p.Change(2, 2);
+		Console.WriteLine(p);		// (2, 2)
+
+		Object o = p;
+		Console.WriteLine(o);		// (2, 2)
+
+		((Point)o).Change(3, 3);	// 对 o 进行拆箱，并将已装箱 Point 中的字段
+									// 复制到线程栈上的一个临时 Point 中。
+		Console.WriteLine(o);		// (2, 2)
+	}
+}
+```
+
+- 有的语言(比如 C++/CLI)允许更改已装箱类型中的字段，但 C# 不允许。可用接口欺骗 C#，让其允许这个操作。
+```
+using System;
+
+// 接口定义了 Change 方法
+internal interface IChangeBoxedPoint {
+	void Change(Int32 x, Int32 y);
+}
+
+// Point 是值类型
+internal struct Point : IChangeBoxedPoint {
+	private Int32 m_x, m_y;
+
+	public Point(Int32 x, Int32 y) {
+		m_x = x; m_y = y;
+	}
+
+	public void Change(Int32 x, Int32 y) {
+		m_x = x; m_y = y;
+	}
+
+	public override String ToString() {
+		return String.Format("({0}, {1})", m_x.ToString(), m_y.ToString());
+	}
+}
+
+public sealed class Program {
+	public static void Main() {
+		Point p = new Point(1, 1);
+		Console.WriteLine(p);		// (1, 1)
+
+		p.Change(2, 2);
+		Console.WriteLine(p);		// (2, 2)
+
+		Object o = p;
+		Console.WriteLine(o);		// (2, 2)
+
+		((Point)o).Change(3, 3);	// 对 o 进行拆箱，并将已装箱 Point 中的字段
+									// 复制到线程栈上的一个临时 Point 中。
+		Console.WriteLine(o);		// (2, 2)
+
+		// 对 p 进行装箱，更改已装箱的对象，然后丢弃它
+		((IChangeBoxedPoint)p).Change(4, 4);
+		Console.WriteLine(p);				// (2, 2)
+		
+		// 更改已装箱的对象，并显示它
+		((IChangeBoxedPoint)o).Change(5, 5);
+		Console.WriteLine(o);				// (5, 5)
+	}
+}
+```
+- 值类型应该“不可变”(immutable)。不应该定义任何会修改实例字段的成员。建议将值类型的字段都标记为`readobly`。
+
+## 5.3.2 对象相等性和同一性
+- System.Object 类型提供了 Equals 的虚方法，假如 this 和 obj 实参引用同一个对象，返回 true。对于 Object 的 Equals 方法的默认实现，实现的实际是同一性(identity)，而非相等性(equality)。
+- Object 的 Equals 方法的默认实现并不合理。以下为 Equals 方法应如何正确实现：
+	- 1.如果 obj 实参为 null，就返回 false，因为调用非静态 Equals 方法时，this 所标识的当前对象显然不为 null。
+	- 2.如果 this 和 obj 实参引用同一个对象，就返回 true。在比较包含大量字段的对象时，这一步有助于提升性能。
+	- 3.如果 this 和 obj 实参引用不同类型的对象，就返回 false。一个 String 对象显然不等于一个 FileStream 对象。
+	- 4.针对类型定义的每个实例字段，将 this 对象中的值与 obj 对象中的值进行比较。任何字段不相等，就返回 false。
+	- 5.调用基类的 Equals 方法来比较它定义的任何字段。如果基类的 Equals 方法返回 false，就返回 false；否则返回 true。
+
+- Microsoft 本应像下面这样实现 Object 的 Equals 方法：
+```
+public class Object {
+	public virtual Boolean Equals(Object obj) {
+		// 要比较的对象不能为 null
+		if (obj == null) return false;
+
+		// 如果对象属于不同类型，则肯定不相等
+		if (this.GetType() != obj.GetType()) return false;
+
+		// 如果对象属于相同的类型，那么在它们的所有字段都匹配的前提下返回 true
+		// 由于 System.Object 没有定义任何字段，所以字段是匹配的
+		return true;
+	}
+}
+```
+- 类型重写 Equals 方法时应调用其基类的 Equals 实现(除非基类就是 Object)。由于类型能重写 Object 的 Equals 方法，所以不能再用它测试同一性。
+- 检查同一性务必调用 ReferenceEquals，不应使用 C# 的 == 操作符(除非先把两个操作数都转型为 Object)，因为某个操作数的类型可能重载了 == 操作符，为其赋予不同于“同一性”的语义。Object 静态方法 ReferenceEquals 原型：
+```
+public class Object {
+	public static Boolean ReferenceEquals(Object objA, Object objB) {
+		return (objA == objB);
+	}
+}
+```
+- System.ValueType(所有值类型的基类)重写了 Object 的 Equals 方法，并进行了正确的实现来执行值的相等性检查(而不是同一性检查)。ValueType 的 Equals 内部实现：
+	- 1.如果 obj 实参为 null，就返回 false。
+	- 2.如果 this 和 obj 实参引用不同类型的对象，就返回 false。
+	- 3.针对类型定义的每个实例字段，都将 this 对象中的值与 obj 对象中的值进行比较(通过调用字段的 Equals 方法)。任何字段不相等，就返回 false。
+	- 4.返回 true。ValueType 的 Equals 方法不调用 Object 的 Equals 方法。
+
+- 在内部，ValueType 的 Equals 方法利用反射(23)完成3。由于 CLR 反射机制慢，定义自己的值类型时应重写 Equals 方法来提供自己的实现，从而提高用自己类型的实例进行值相等性比较的性能。当然，自己的实现不调用 base.Equals。
+- 定义自己的类型是，重写的 Equals 要符合相等性的4个特征：
+	- Equals 必须自反：x.Equals(x) 肯定返回 true。
+	- Equals 必须对称：x.Equals(y) 和 x.Equals(x) 返回相同的值。
+	- Equals 必须可传递：x.Equals(y) 返回 true，y.Equals(z) 返回 true，则 x.Equals(z)肯定返回 true。
+	- Equals 必须一致。比较的两个值不变，Equals 返回值(true 或 false)也不能变。
+- 如果实现的 Equals 不符合上述任何特征，程序就会行为失常。重写 Equals 方法时，可能还需要以下：
+	- 让类型实现 System.IEquatable<T> 接口的 Equals 方法
+		- 这个泛型接口允许定义类型安全的 Equals 方法。通常，实现的 Equals 方法应获取一个 Object 参数，以便在内部调用类型安全的 Equals 方法。
+	- 重载 == 和 != 操作符方法
+		- 通常应实现这些操作符方法，在内部调用类型安全的 Equals。
+- 处于排序目的而比较类型的实例，类型还应实现 System.IComparable 的 CompareTo 方法和 System.IComparable<T> 的类型安全的 CompareTo 方法。如果实现了这些方法，还可考虑重载各种比较操作符方法(<, <=, >, >=)，在这些方法内部调用类型安全的 CompareTo 方法。
+
+
+# 5.4 对象哈希码
+- 定义的类型重写了 Equals 方法，还应重写 GetHashCode 方法，不然弹警告。之所以这样，是由于在 System.Collections.Hashtable 类型、System.Collections.Generic.Dictionary 类型以及其他一些集合的实现中，要求两个对象必须具有相同哈希码才被视为相等。
+- 简单说，向集合添加键/值(key/value)对，首先要获取键对象的哈希码。该哈希码指出键值对要存储到哪个哈希桶(bucket)中。集合需要查找键时，会获取指定键对象的哈希码。该哈希码标识了现在要以顺序方式搜索的哈希桶，将在其中查找与指定键对象相等的键对象。采用这个算法来存储和查找键，意味着一旦修改了集合中的一个键对象，集合就再也找不到该对象。所以，需要修改哈希表中的键对象时，正确做法是移除原来的键/值对，修改键对象，再将新的键/值对添加回哈希表。
+- 自定义 GetHashCode 方法不是一件难事，但取决于数据类型和数据分布情况，可能并不容易设计出能返回良好分部值的哈希算法。下面的简单的哈希算法，用于 Point 对象还可以：
+```
+internal sealed class Point {
+	private readonly Int32 m_x, m_y;
+	public override Int32 GetHashCode() {
+		return m_x ^ m_y;	// 返回 m_x 和 m_y 的 XOR 结果
+	}
+}
+```
+
+- 选择算法来计算类型实例的哈希码时，遵循：
+	- 这个算法要提供良好的随机分布，使哈希表获得最佳性能。
+	- 可在算法中调用基类的 GetHashCode 方法，并包含它的返回值。但一般不要调用 Object 或 ValueType 的 GetHashCode 方法，因为两者的实现都与高性能哈希算法“不沾边”。
+	- 算法至少使用一个实例字段。
+	- 理想情况下，算法使用的字段应该不可变(immutable);也就是，字段应在对象构造时初始化，在对象生存期永不变。
+	- 算法执行速度尽量快。
+	- 包含相同值的不同对象应返回相同哈希码。例如，包含相同文本的两个 String 对象应返回相同哈希码。
+
+- System.Object 实现的 GetHashCode 方法对派生类型和其中的字段一无所知，所以返回一个在对象生存期保证不变的编号。
+- 假如要实现自己的哈希表集合，或要在实现的代码中调用 GetHashCode，千万不要对哈希码进行持久化，因为哈希码容易改变。例如，一个类型(String)未来的版本可能使用不同的算法计算对象哈希码。eg.公司存储登录密码用 String 的 GetHashCode。升级到新版本 CLR 后，都登不了了。
+
+# 5.5 dynamic基元类型
+- C# 编译器允许将表达式的类型标记为 dynamic；将表达式的结果放到变量中，将变量类型标记为 dynamic；用 dynamic 表达式/变量调用成员。
+- 代码使用 dynamic 表达式/变量调用成员时，编译器生成特殊 IL 代码来描述所需的操作。这种特殊的代码称为 payload(有效载荷)。在运行时，payload 代码根据 dynamic 表达式/变量引用的对象的实际类型来决定具体执行的操作。
+```
+internal static class DynamicDemo {
+	public static void Main() {
+		dynamic value;
+		for (Int32 demo = 0; demo < 2; demo++) {
+			value = (demo == 0) ？ (dynamic)5 : (dynamic) "A";
+			value = value + value;
+			M(value);
+		}
+	}
+
+	private static void M(Int32 n) { Console.WriteLine("M(Int32): " + n); }	// 10
+	private static void M(String s) { Console.WriteLine("M(String): " + s); }// AA
+}
+```
+
+- 如果字段、方法参数或方法返回值的类型是 dynamic，编译器会将该类型转换为 System.Object，并在元数据中向字段、参数或返回类型应用 System.Runtime.CompilerServices.DynamicAttribute 的实例。
+- 局部变量被指定为 dynamic，类型也会成为 Object，但不会向局部变量应用 DynamicAttribute，因为它限制在方法内部使用。
+- 由于 dynamic 其实就是 Object，所以方法签名不能仅靠 dynamic 和 Object 的变化来区分。
+- 泛型类(引用类型)、结构(值类型)、接口、委托或方法的泛型类型实参也可以是 dynamic 类型。使用的泛型代码使已经编译好的，会将类型视为 Object，编译器不在泛型代码中生成 payload 代码，所以不会执行动态调度。
+- 所有表达式都能隐式转型为 dynamic，因为所有表达式最终生成从 Object 派生的类型。正常情况下，编译器不允许写代码将表达式从 Object 隐式转型为其他类型，必须显示转型。但编译器允许使用隐式转型语法将表达式从 dynamic 转型为其他类型。
+```
+Object o1 = 123;		// OK: 从 Int32 隐式转型为 Object(装箱)
+Int32 n1 = 01;			// Error: 不允许从 Object 到 Int32 的隐式转型
+Int32 n2 = (Int32)o1;	// OK: 从 Object 显示转型为 Int32(拆箱)
+
+dynamic d1 = 123;		// OK: 从 Int32 隐式转型为 dynamic(装箱)
+Int32 n3 = d1;			// OK: 从 dynamic 隐式转型为 Int32(拆箱)
+```
+
+- dynamic 表达式求值结果是一个动态表达式。
+```
+dynamic d = 123;
+var result = M(d);	// 注意：'var result'等同于'dynamic result'
+```
+
+- 不熬混淆 dynamic 和 var。用 var 声明局部变量只是一种简化语法，它要求编译器根据表达式推断具体数据类型。var 关键字只能在方法内部声明局部变量，而 dynamic 关键字可用于局部变量、字段和参数。表达式不能转型为 var，但能转型为 dynamic。必须显式初始化用 var 声明的变量，但无需初始化用 dynamic 声明的变量。(9.2)
+
+- 其他 dynamic 见 P132。
+
+```
+internal sealed class StaticMemberDynamicWrapper : DynamicObject {
+	private readonly TypeInfo m_type;
+	public StaticMemberDynamicWrapper(Type type) { m_type = type.GetTypeInfo(); }
+
+	public override IEnumerable<String> GetDynamicMemberNames() {
+		return m_type.DeclaredMembers.Select(mi => mi.Name);
+	}
+
+	public override bool TryGetMember(GetMemberBinder binder, out object result) {
+		result = null;
+		var field = FindField(binder.Name);
+		if (field != null) { result = field.GetValue(null); return true; }
+
+		var prop = FindProperty(binder.Name, true);
+		if (prop != null) { result = prop.GetValue(null, null); return true; }
+		return false;
+	}
+
+	public override bool TrySetMember(SetMemberBinder binder, object value) {
+		var field = FindField(binder.Name);
+		if (field != null) { field.SetValue(null, value); return true; }
+
+		var prop = FindProperty(binder.Name, false);
+		if (prop != null) { prop.SetValue(null, value, null); return true; }
+		return false;
+	}
+
+	public override bool TryInvokeMember(InvokeMemberBinder binder, object[] args, out object result) {
+		MethodInfo method = FindMethod(binder.Name, args.Select(c => c.GetType()).ToArray());
+		if (method == null) { result = null; return false; }
+		result = method.Invoke(null, args);
+		return true;
+	}
+
+	private MethodInfo FindMethod(String name, Type[] paramTypes) {
+		return m_type.DeclaredMethods.FirstOrDefault(mi => mi.IsPublic && mi.IsStatic && mi.Name == name && ParametersMatch(mi.GetParameters(), paramTypes));
+	}
+
+	private Boolean ParametersMatch(ParameterInfo[] parameters, Type[] paramTypes) {
+		if (parameters.Length != paramTypes.Length) return false;
+		for (Int32 i = 0; i < parameters.Length; i++)
+			if (parameters[i].ParameterType != paramTypes[i]) return false;
+		return true;
+	}
+
+	private FieldInfo FindField(string name) {
+		return m_type.DeclaredFields.FirstOrDefault(fi => fi.IsPublic && fi.IsStatic && fi.Name == name);
+	}
+
+	private PropertyInfo FindProperty(String name, Boolean get) {
+		if (get)
+		return m_type.DeclaredProperties.FirstOrDefault(pi => pi.Name == name && pi.GetMethod != null && pi.GetMethod.IsPublic && pi.GetMethod.IsStatic);
+
+		return m_type.DeclaredProperties.FirstOrDefault(
+		pi => pi.Name == name && pi.SetMethod != null && pi.SetMethod.IsPublic && pi.SetMethod.IsStatic);
+	}
+}
+```
+- 为了动态调用静态成员，传递想要的操作的 Type 来构建上述类的实例，将引用放到 dynamic 变量中，再用实例成员语法调用所需静态成员。
+```
+dynamic stringType = new StaticMemberDynamicWrapper(typeof(String));
+var r = stringType.Concat("A", "B");	// 动态调用 String 的静态 Concat 方法
+Console.WriteLine(r);	// 显示 "AB"
+```
+
+
+
+
+
+# 6 类型和成员基础
+- 类型的各种成员
+- 类型的可见性
+- 成员的可访问性
+- 静态类
+- 分部类、结构和接口
+- 组件、多态和版本控制
+
+
+## 6.1 类型的各种成员 
+- 常量，字段，实例构造器，类型构造器，方法，操作符重载，转换操作符，属性，事件，类型。
+
+## 6.2 类型的可见性
 - 
+
+
+
+
+
+
+
+
 
 
 
